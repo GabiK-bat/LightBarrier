@@ -1,7 +1,7 @@
 
 # LightBarrier
 
-Data and R scripts used to analyse light barrier data for the following publication:
+Data and R scripts used in the following publication:
 
 G. Krivek, E. P. N. Mahecha, F. Meier, G. Kerth, J. van Schaik (2022) Counting in the dark: estimating population size and trends of bat assemblages at hibernacula using infrared light barriers
 
