@@ -1,0 +1,362 @@
+---
+title: "population_trends"
+author: "GabiK"
+date: '2022-03-31'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# required packages
+library(tidyverse)
+library(scales)
+library(gg.gap)
+library(ggpubr)
+library(lubridate)
+# required scripts
+source("./TimeFrame5.R")
+```
+
+```{r functions}
+# mean net error set to ±1, SD extrapolated based on regression
+estimate_with_SD = function(passes,max,mean_pass,blocked_hours=0){
+    chunk=floor(passes/100)
+    #Regression (ratio of total passes:population size estimate to missed passes)
+    #estimated regression slope = 0.83
+    regression_estimate_SD=0.83
+    missedpasses=0.2*chunk + 1*chunk + chunk*regression_estimate_SD*(passes/max) + blocked_hours*mean_pass
+    missed_chunks=round(missedpasses/100,1)
+    real_chunks=floor(chunk+missed_chunks)
+    print(paste0("Original chunks: ",chunk),quote = FALSE)
+    print(paste0("Real chunks: ",real_chunks),quote = FALSE)
+    ratio=round(passes/max,2)
+    print(paste0("Total passes/population size estimate = ",ratio),quote = FALSE)
+    #Regression (ratio of total passes:population size estimate to SD)
+    #estimated regression slope = 0.22
+    #SD=1 accounts for error based on consecutive LBs in Eldena, Gaussian error prop
+    regression_estimate=0.22
+    SD=round(sqrt((1*1)+(ratio*regression_estimate)*(ratio*regression_estimate)),2) 
+    print(paste0("SD adjusted = ",SD),quote = FALSE)
+    se=SD/sqrt(real_chunks)
+    mean_net_error=0
+    print("Mean net error set to ±1 ",quote = FALSE)
+    lcl = round(((mean_net_error-1) - qt(1 - (0.05 / 2), real_chunks - 1) * se) * real_chunks,0)
+    ucl = round(((mean_net_error+1) + qt(1 - (0.05 / 2), real_chunks - 1) * se) * real_chunks,0)
+    print(paste0("Population size estimate: ",max," (",max+lcl,"-",max+ucl,")") ,quote = FALSE)
+    return(c(max,max+lcl,max+ucl))
+}
+```
+
+```{r estimate_population_size}
+#LOOP - RUN ONLY ONCE!
+confidence_intervals=data.frame(Site=0, year=0, LB=0 , lcl=0, ucl=0)
+confidence_intervals_adj=data.frame(Site=0, year=0, LB=0 , lcl_adj=0, ucl_adj=0)
+
+Sites=c("Eldena","Trollenhagen","Baumberge2","Baumberge1")
+#for Baumberge1 data is missing for 2021, loop will stop
+
+for (Site in Sites){#loop through each site
+  Years=c(2016:2021)
+  
+  for (possYear in Years){#loop through each year
+    print(paste("Estimating population size for",Site,possYear))
+    emergence_dates=read.csv("./emergence/LB_estimates_dates.csv")
+    
+    #emergence dates and max estimates
+      emergence_start=emergence_dates$start[emergence_dates$Site==Site & emergence_dates$year==possYear]
+      emergence_start
+      emergence_end=emergence_dates$end[emergence_dates$Site==Site & emergence_dates$year==possYear]
+      emergence_end
+      netvalue=emergence_dates$estimate[emergence_dates$Site==Site & emergence_dates$year==possYear]
+      netvalue
+   
+      Dat=read.csv(paste0("./data/pseudo_spring_emergence/",Site,"_pseudo.csv"))
+      head(Dat)
+    
+    if (Site=="Eldena" & possYear==2021){
+      Dat=subset(Dat, Dat$LS!="A")
+    }
+      
+    merged_spring=Dat %>% 
+      filter(as.Date(Dat$pseudodate)>as.Date(emergence_start) & 
+               as.Date(Dat$pseudodate)<as.Date(emergence_end)) %>% 
+      mutate(Uhrzeit = as.POSIXct(Uhrzeit, format = "%H:%M:%S"),
+                hour = strftime(Uhrzeit, format="%H")) 
+    
+    merged_spring$hour=as.numeric(merged_spring$hour)
+    merged_spring$pseudodate=as.Date(merged_spring$pseudodate)
+
+    #average passes/NET per hour
+    passes_hour=merged_spring %>%
+      filter(hour>15 | hour<9) %>% 
+      group_by(pseudodate,hour) %>% 
+      summarise(n=sum(abs(EventC)),
+                net=sum(EventC)) %>%
+      ungroup() %>% 
+      group_by(pseudodate) %>% 
+      complete(hour=c(seq(15,23),seq(0,9)),
+               fill = list(n= 0, net=0)) %>% 
+      ungroup() %>% 
+      complete(pseudodate=seq(min(pseudodate),max(pseudodate),by='day'),
+               fill = list(n= 0, net=0))
+    
+    #print(Site)
+    total_pass=sum(passes_hour$n)
+    print(paste0("Total passes during emergence: ",total_pass),quote = FALSE)
+    mean_pass=round(mean(passes_hour$n),2)
+    print(paste0("Average passes per hour during emergence: ",mean_pass),quote = FALSE)
+    net_pass=round(mean(passes_hour$net),2)
+    print(paste0("Average NET per hour during emergence: ",net_pass),quote = FALSE)
+    
+    #calculate confidence interval for NET/hour
+    sd=sd(passes_hour$net)
+    n_chunk=length(passes_hour$net)
+    se=sd / sqrt(n_chunk)
+    ucl = net_pass - qt(1 - (0.05 / 2), n_chunk - 1) * se
+    ucl
+    lcl = net_pass + qt(1 - (0.05 / 2), n_chunk - 1) * se
+    lcl
+    
+    #Site-specific blocked hours   
+    blocked_hours=0
+    print(paste0("Blocked hours: ",blocked_hours," hrs"),quote = FALSE)
+    
+    correction_lower=round(blocked_hours*lcl,0)
+    print(paste("Correct lcl due to blocked hours:",correction_lower),quote = FALSE)
+    correction_upper=round(blocked_hours*ucl,0)
+    print(paste("Correct ucl due to blocked hours:",correction_upper),quote = FALSE)
+    
+    b=estimate_with_SD(total_pass, netvalue, mean_pass,
+                       blocked_hours)
+    row2=c(Site,possYear,b[1],b[2]+abs(correction_lower),b[3]+abs(correction_upper))
+    print("------------------------------------")
+    confidence_intervals_adj=rbind(confidence_intervals_adj,row2)
+  } 
+  
+}
+
+write.csv(confidence_intervals_adj[-1,], 
+          paste0("./accuracy/output/population_trends.csv"),
+          row.names = F)
+```
+
+```{r ELD_data}
+#ELDENA
+# #winter count data from 2016-2021
+wc=c(224,280,303,239,293,271)
+
+# LB estimates: 2021 + earlier years
+confidence_intervals_other=read.csv("./accuracy/output/population_trends.csv")
+confidence_intervals_other=confidence_intervals_other[confidence_intervals_other$Site=="Eldena",]
+colnames(confidence_intervals_other)=c("Site","year","LB","lcl","ucl")
+
+confidence_intervals=confidence_intervals_other
+
+eld=data.frame(
+   year=c(2016:2021),
+   winter_count=wc,
+   LB_count=as.numeric(confidence_intervals$LB)
+  )
+eld$prop_count=round(eld$winter_count*100/eld$LB_count,0)
+
+eld2=data.frame(year=c(2016:2021),
+                  lcl_LB=as.numeric(confidence_intervals$lcl),
+                  ucl_LB=as.numeric(confidence_intervals$ucl))
+```
+
+```{r ELD_plot}
+eld_over_year_plot=
+  eld %>%
+  gather(type, count, -year, -prop_count) %>%
+  ggplot(aes(x=year, y=count)) +
+  geom_point(aes(col=type,shape=type), size=2)+
+  scale_shape_manual(values=c(15,17))+
+  scale_color_manual(values = c("LB_count" = "gray30", "winter_count" = "gray"))+
+  geom_line(aes(col=type), size=1)+
+  labs(y="population size estimate",
+       title = "Eldena", x=" ")+
+  geom_ribbon(data=eld2,
+              aes(x=year,ymin=lcl_LB, ymax=ucl_LB),inherit.aes = F,
+              linetype=2, alpha=0.2,fill="black")+
+  scale_x_continuous(breaks= pretty_breaks(n=6))+
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.line = element_line(colour = "black"),
+        panel.border = element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  geom_hline(yintercept=eld2$lcl_LB[eld2$year==min(eld2$year)], lty=2)+
+  geom_hline(yintercept=eld2$ucl_LB[eld2$year==min(eld2$year)], lty=2)
+eld_over_year_plot
+
+ggsave(paste0("./accuracy/output/Eldena_poptrend.png"),
+       width = 12, height = 8, dpi = 800, units = "cm", device='png' )
+```
+
+
+```{r TROL_data}
+#TROLLENHAGEN
+
+#winter count data from 2016-2021
+wc=c(362,248,266,273,344,278)
+
+# LB estimates: 
+confidence_intervals_other=read.csv("./accuracy/output/population_trends.csv")
+confidence_intervals_other=confidence_intervals_other[confidence_intervals_other$Site=="Trollenhagen",]
+colnames(confidence_intervals_other)=c("Site","year","LB","lcl","ucl")
+
+confidence_intervals$Site="Trollenhagen"
+confidence_intervals=confidence_intervals_other
+
+trol=data.frame(
+  year=c(2016:2021),
+  winter_count=c(362,248,266,273,344,278),
+  LB_count=as.numeric(confidence_intervals$LB)
+)
+
+trol$prop_count=round(trol$winter_count*100/trol$LB_count,0)
+
+trol2=data.frame(year=c(2016:2021),
+                 lcl_LB=as.numeric(confidence_intervals$lcl),
+                 ucl_LB=as.numeric(confidence_intervals$ucl))
+
+```
+
+```{r TROL_plot}
+trol_over_year_plot2= 
+  trol %>% 
+  gather(type, count, -year,-prop_count) %>% 
+  ggplot(aes(x=year, y=count)) +
+  geom_point(aes(col=type,shape=type), size=2)+
+  scale_shape_manual(values=c(15,17))+
+  scale_color_manual(values = c("LB_count" = "gray30", "winter_count" = "gray"))+
+  geom_line(aes(col=type), size=1)+
+  labs(y="population size estimate",
+       title = "Trollenhagen", x="")+
+  geom_ribbon(data=trol2,
+              aes(x=year,ymin=lcl_LB, ymax=ucl_LB),inherit.aes = F,
+              linetype=2, alpha=0.2,fill="black")+
+  scale_x_continuous(breaks= pretty_breaks(n=6))+
+  theme_bw()+
+  theme(legend.position = "none")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  geom_hline(yintercept=trol2$lcl_LB[trol2$year==min(trol2$year)], lty=2)+
+  geom_hline(yintercept=trol2$ucl_LB[trol2$year==min(trol2$year)], lty=2)
+
+plot_gap=gg.gap(plot=trol_over_year_plot2,
+       segments=c(500,2500),
+       ylim=c(100,5100),
+       tick_width = c(100,500),
+       margin = c(top = 0, right = 0, bottom = 0, left = 0.5))
+plot_gap
+
+ggsave(paste0("./accuracy/output/Trollenhagen_poptrends.png"),
+       width = 16, height =10, dpi = 800, units = "cm", device='png' )
+```
+
+```{r B1_data}
+#Baumberge 1
+
+# LB estimates: 
+confidence_intervals_other=read.csv("./accuracy/output/population_trends.csv")
+confidence_intervals_other=confidence_intervals_other[confidence_intervals_other$Site=="Baumberge1",]
+colnames(confidence_intervals_other)=c("Site","year","LB","lcl","ucl")
+
+confidence_intervals=confidence_intervals_other
+
+b1=data.frame(
+  year=c(2016:2021),
+  LB_count=c(as.numeric(confidence_intervals$LB),NA)
+)
+
+b12=data.frame(year=c(2016:2021),
+                 lcl_LB=c(as.numeric(confidence_intervals$lcl),NA),
+                 ucl_LB=c(as.numeric(confidence_intervals$ucl),NA))
+
+```
+
+```{r B1_plot}
+b1_over_year_plot2= 
+ b1 %>% 
+  ggplot(aes(x=year, y=LB_count)) +
+  geom_point(size=2, shape=15)+
+  geom_line(size=1)+
+  labs(y="population size estimate",
+       title = "Baumberge 1", x="")+
+  geom_ribbon(data=b12,
+              aes(x=year,ymin=lcl_LB, ymax=ucl_LB),inherit.aes = F,
+              linetype=2, alpha=0.2,fill="black")+
+  scale_y_continuous(breaks= pretty_breaks(n=6))+
+  scale_y_continuous(limits=c(6500,9000),breaks= pretty_breaks(n=6))+
+  theme_bw()+
+  theme(legend.position = "none")+
+  theme(legend.position = "none",
+        axis.line = element_line(colour = "black"),
+        panel.border = element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  geom_hline(yintercept=b12$lcl_LB[b12$year==min(b12$year)], lty=2)+
+  geom_hline(yintercept=b12$ucl_LB[b12$year==min(b12$year)], lty=2)
+b1_over_year_plot2
+
+ggsave(paste0("./accuracy/output/Baumberge1_poptrends.png"),
+       width = 16, height =10, dpi = 800, units = "cm", device='png' )
+```
+
+
+```{r B2_data}
+#Baumberge 2
+
+# LB estimates: 
+confidence_intervals_other=read.csv("./accuracy/output/population_trends.csv")
+confidence_intervals_other=confidence_intervals_other[confidence_intervals_other$Site=="Baumberge2",]
+colnames(confidence_intervals_other)=c("Site","year","LB","lcl","ucl")
+
+confidence_intervals=confidence_intervals_other
+
+b2=data.frame(
+  year=c(2016:2021),
+  LB_count=as.numeric(confidence_intervals$LB)
+)
+
+b22=data.frame(year=c(2016:2021),
+                 lcl_LB=as.numeric(confidence_intervals$lcl),
+                 ucl_LB=as.numeric(confidence_intervals$ucl))
+
+```
+
+```{r B2_plot}
+b2_over_year_plot2= 
+ b2 %>% 
+  ggplot(aes(x=year, y=LB_count)) +
+  geom_point(size=2, shape=15)+
+  geom_line(size=1)+
+  labs(y="population size estimate",
+       title = "Baumberge 2", x="")+
+  geom_ribbon(data=b22,
+              aes(x=year,ymin=lcl_LB, ymax=ucl_LB),inherit.aes = F,
+              linetype=2, alpha=0.2,fill="black")+
+  scale_x_continuous(breaks= pretty_breaks(n=6))+
+  scale_y_continuous(limits=c(450,1050),breaks= pretty_breaks(n=6))+
+  theme_bw()+
+  theme(legend.position = "none")+
+  theme(legend.position = "none",
+        axis.line = element_line(colour = "black"),
+        panel.border = element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  geom_hline(yintercept=b22$lcl_LB[b22$year==min(b22$year)], lty=2)+
+  geom_hline(yintercept=b22$ucl_LB[b22$year==min(b22$year)], lty=2)
+b2_over_year_plot2
+
+ggsave(paste0("./accuracy/output/Baumberge2_poptrends.png"),
+       width = 16, height =10, dpi = 800, units = "cm", device='png' )
+```
+
+```{r arrange_plots}
+plots_4=ggarrange(eld_over_year_plot,plot_gap,
+          b1_over_year_plot2,b2_over_year_plot2, ncol=2, nrow=2)
+plots_4
+ggsave(paste0("./accuracy/output/4sites_pop_trends.png"),
+       width = 18, height =14, dpi = 800, units = "cm", device='png' )
+```
+

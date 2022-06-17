@@ -1,0 +1,87 @@
+---
+title: "Separate_emergence_from_early_summer"
+author: "GabiK"
+date: '2022-03-29'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+source("./TimeFrame5.R")
+```
+
+## Separating the emergence phase from early summer activity 
+```{r creating_data_files}
+#run only once to generate text files that will be used in Python
+#output: data tables for each year between Jan 1 and July 31 with number of passes/night
+
+#years
+emergence_years=read.csv("./data/emergence_years.csv")
+#sites
+Sites=unique(emergence_years$Site)
+
+
+for (Site in Sites){
+  Dat=read.csv(paste0("./data/pseudo_spring_emergence/",Site,"_pseudo.csv"))
+  head(Dat)
+  
+  # loop through all the years for the chosen site
+  Years=unlist(str_split(emergence_years$Year[emergence_years$Site==Site],","))
+  Years
+  
+  for(possYear in Years){
+    DatCut = Dat %>% 
+      dplyr::filter(Year==as.character(possYear))
+    Pdates=split.date(as.vector(DatCut$pseudodate), format=c("y","m","d"),
+                      sep="-",merge = T)
+    head(DatCut)
+    tail(DatCut)
+    
+    DatCut$Uhrzeit= as.POSIXct(DatCut$Uhrzeit,format="%H:%M:%S")
+    sunrise=as.POSIXct("09:00:00",format="%H:%M:%S") 
+    sunset=as.POSIXct("15:00:00",format="%H:%M:%S") 
+    
+    # filter out daytime events if light barrier is installed directly at the entrance
+    if (emergence_years$Entrance[emergence_years$Site==Site]){
+      DatCut=filter(DatCut, !(DatCut$Uhrzeit>sunrise & DatCut$Uhrzeit<sunset))
+    }
+    
+    #Eldena 2021 Liba-16k + Liba-4 (exclude Liba-16)
+    if (Site=="Eldena" & possYear==2021){
+      DatCut=subset(DatCut,DatCut$LS!="A")
+    }
+    
+    #add missing dates 
+    DatCut=
+      DatCut %>% 
+      mutate(pseudodate=as.Date(pseudodate)) %>% 
+      complete(pseudodate =seq.Date(pseudodate[1],
+                                    pseudodate[nrow(DatCut)], 
+                                    by="day")) 
+    DatCut$EventC=as.numeric(as.character(DatCut$EventC))
+    
+    #summary tables of events
+    sumPday=DatCut %>% 
+      group_by(pseudodate) %>% 
+      mutate(total=sum(abs(EventC), na.rm = T),
+             net=sum(EventC, na.rm = T),
+             pos=sum(EventC[EventC==1], na.rm = T),
+             neg=sum(EventC[EventC==-1], na.rm = T)) %>% 
+      distinct(pseudodate, .keep_all = T)
+   
+    final=sumPday %>%
+        ungroup() %>%
+        dplyr::select(total,net)
+    
+    #save output as txt file
+    write.table(final, paste0("./emergence/emergence_split_earlysummer/"
+                              ,Site,"_",possYear,"_emergence_split.txt"),
+                row.names = T, quote=F, col.names = F)
+  }
+}   
+```
+
+# Next step: use Python lmfit script to separate emergence from early summer.

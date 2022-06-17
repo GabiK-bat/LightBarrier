@@ -1,0 +1,91 @@
+---
+title: "extrapolated_confidence_interval"
+author: "GabiK"
+date: '2022-03-31'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# required packages
+library(tidyverse)
+library(scales)
+# required scripts
+source("./TimeFrame5.R")
+```
+
+```{r functions}
+# mean net error set to ±1, SD extrapolated based on regression
+estimate_with_SD = function(passes,max,mean_pass,blocked_hours=0){
+    chunk=floor(passes/100)
+    #Regression (ratio of total passes:population size estimate to missed passes)
+    #estimated regression slope = 0.83
+    regression_estimate_SD=0.83
+    missedpasses=0.2*chunk + 1*chunk + chunk*regression_estimate_SD*(passes/max) + blocked_hours*mean_pass
+    missed_chunks=round(missedpasses/100,1)
+    real_chunks=floor(chunk+missed_chunks)
+    print(paste0("Original chunks: ",chunk),quote = FALSE)
+    print(paste0("Real chunks: ",real_chunks),quote = FALSE)
+    ratio=round(passes/max,2)
+    print(paste0("Total passes/population size estimate = ",ratio),quote = FALSE)
+    #Regression (ratio of total passes:population size estimate to SD)
+    #estimated regression slope = 0.22
+    #SD=1 accounts for error based on consecutive LBs in Eldena, Gaussian error prop
+    regression_estimate=0.22
+    SD=round(sqrt((1*1)+(ratio*regression_estimate)*(ratio*regression_estimate)),2) 
+    print(paste0("SD extrapolated = ",SD),quote = FALSE)
+    se=SD/sqrt(real_chunks)
+    mean_net_error=0
+    print("Mean net error set to ±1 ",quote = FALSE)
+    lcl = round(((mean_net_error-1) - qt(1 - (0.05 / 2), real_chunks - 1) * se) * real_chunks,0)
+    ucl = round(((mean_net_error+1) + qt(1 - (0.05 / 2), real_chunks - 1) * se) * real_chunks,0)
+    print(paste0("Population size estimate: ",max," (",max+lcl,"-",max+ucl,")") ,quote = FALSE)
+    return(c(max,max+lcl,max+ucl))
+}
+```
+
+## ESTIMATING POPULATION SIZE FOR SITES WITH NO IR VIDEO DATA
+
+```{r loop}
+#file with site names and years
+emergence_years=read.csv("./data/emergence_years_comparison.csv")
+Sites=emergence_years$Site
+emergence_dates=read.csv("./emergence/LB_estimates_dates.csv")
+emergence_dates
+
+confidence_intervals=data.frame(Site=0, year=0, LB=0 , lcl=0, ucl=0, passes=0)
+
+for (Site in Sites){#loop through each site
+  Dat=read.csv(paste0("./data/pseudo_spring_emergence/",Site,"_pseudo.csv"))
+  head(Dat)
+  # loop through all the years for the chosen site
+  Years=unlist(str_split(emergence_years$Year[emergence_years$Site==Site],","))
+  print(Site,quote = FALSE)
+  print(paste("Available years:",Years),quote = FALSE)
+  
+  for(possYear in Years){
+    total_pass=emergence_dates$total_passes[emergence_dates$Site==Site &emergence_dates$year==possYear]
+    netvalue=emergence_dates$estimate[emergence_dates$Site==Site &emergence_dates$year==possYear]
+    mean_pass=0
+    blocked_hours=0
+    correction_lower=0
+    correction_upper=0
+    a=estimate_with_SD(total_pass, netvalue,mean_pass,blocked_hours) 
+    
+    row=c(Site,possYear,a[1],
+          a[2]+abs(correction_lower),
+          a[3]+abs(correction_upper),total_pass)
+    print(row)
+    print("------------------------------------")
+    confidence_intervals=rbind(confidence_intervals,row)
+  ##################################
+  } #end of loop per year
+  
+} 
+
+write.csv(confidence_intervals[-1,],
+          paste0("./accuracy/output/confidence_intervals_noIRsites.csv"),
+          row.names = F)
+```

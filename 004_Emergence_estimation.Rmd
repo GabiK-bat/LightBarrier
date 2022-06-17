@@ -1,0 +1,340 @@
+---
+title: "Emergence_estimation"
+author: "GabiK"
+date: '2022-03-30'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# required packages
+library(adagio)
+library(tidyverse)
+library(scales)
+library(lubridate)
+# required scripts
+source("./TimeFrame5.R")
+source("./smallestsubwithsum.R")
+
+monthly <- function(x) {
+        x_range <- range(x, na.rm = TRUE)
+        
+        date_range <- c(
+          floor_date(x_range[1], "month"),
+          ceiling_date(x_range[2], "month")
+        )
+        monthly <- seq(date_range[1], date_range[2], by = "1 month")
+        
+        monthly
+      }
+```
+
+## Emergence estimation worflow
+```{r parameters}
+#if a new site is added, the site name, emergence year and light barrier position (TRUE=at the entrance; FALSE=few meters away from entrance) has to be added manually to this table
+emergence_years=read.csv("./data/emergence_years.csv")
+emergence_years
+
+#if outlier night was detected visually, specify details here in order to estimate total and net passes of the outlier night based on the average of the  preceding and following 3 nights
+outlier_night="2021-03-28" #set date of outlier night
+outlier_site="Friedland" #site where outlier night occured
+outlier_year=2021 #emergence year when outlier night occured
+```
+
+```{r workflow}
+Sites=c(unique(emergence_years$Site),"Eldena_L8","Eldena_L16")
+
+conf_ints=data.frame(Site=0, year=0, lcl=0 , max=0,ucl=0,SD=0, passes=0)
+emergence_dates=data.frame(Site=0, year=0, start=0 , end=0, estimate=0,
+                           total_passes=0,
+                           earlysummer_passes=0,
+                           autumn_passes=0)
+
+for (Site in Sites){
+  
+    if (Site=="Eldena_L8"){
+      Dat=read.csv(paste0("./data/pseudo_spring_emergence/Eldena_pseudo.csv"))
+      Dat=Dat %>% 
+        filter(LS=="C")
+      head(Dat)
+      Years=2021
+      
+    }else if ( Site=="Eldena_L16" ){
+      Dat=read.csv(paste0("./data/pseudo_spring_emergence/Eldena_pseudo.csv"))
+      Dat=Dat %>% 
+        filter(LS=="A")
+      head(Dat)
+      Years=2021
+      
+    } else {
+      Dat=read.csv(paste0("./data/pseudo_spring_emergence/",Site,"_pseudo.csv"))
+      head(Dat)
+      tail(Dat)
+      # loop through all the years for the chosen site
+      Years=unlist(str_split(emergence_years$Year[emergence_years$Site==Site],","))
+    }
+  for(possYear in Years){
+    print(paste("Emergence estimation for",Site,possYear))
+    possYear=as.numeric(possYear)
+    DatCut = Dat %>% 
+      dplyr::filter(Year==as.numeric(possYear)|
+                      Year==as.numeric(possYear)-1)
+    Pdates=split.date(as.vector(DatCut$pseudodate), format=c("y","m","d"),
+                      sep="-",merge = T)
+    
+    #calculate number of passing during autumn (defined here as Jul 1 - Jan 1)
+    autumn=subset(DatCut, Pdates>=as.numeric(paste(possYear-1,"0701", sep="")) &
+                    Pdates<=as.numeric(paste(possYear,"0101", sep="")))
+    
+    #DAYTIME filter (filter out events between 9AM and 3PM)
+    autumn$Uhrzeit= as.POSIXct(autumn$Uhrzeit,format="%H:%M:%S")
+    DatCut$Uhrzeit= as.POSIXct(DatCut$Uhrzeit,format="%H:%M:%S")
+    sunrise=as.POSIXct("09:00:00",format="%H:%M:%S") 
+    sunset=as.POSIXct("15:00:00",format="%H:%M:%S") 
+    
+    # filter out daytime events if light barrier is at the entrance (Entrance=TRUE)
+    if (Site=="Eldena_L8" | Site=="Eldena_L16"){ 
+      autumn=filter(autumn, !(autumn$Uhrzeit>sunrise & autumn$Uhrzeit<sunset))
+      DatCut=filter(DatCut, !(DatCut$Uhrzeit>sunrise & DatCut$Uhrzeit<sunset))
+    }else if (emergence_years$Entrance[emergence_years$Site==Site]){ 
+      autumn=filter(autumn, !(autumn$Uhrzeit>sunrise & autumn$Uhrzeit<sunset))
+      DatCut=filter(DatCut, !(DatCut$Uhrzeit>sunrise & DatCut$Uhrzeit<sunset))
+    }
+    #################################
+    
+    #special cases in our dataset
+    
+    #Eldena 2021 Liba-16k + Liba-4
+    if (Site=="Eldena" & possYear==2021){
+      autumn=subset(autumn,autumn$LS!="A")
+      DatCut=subset(DatCut,DatCut$LS!="A")
+    }
+    
+    #Liba-16k 
+    if (Site=="Eldena_L8" & possYear==2021){
+      autumn=subset(autumn,autumn$LS=="C")
+      DatCut=subset(DatCut,DatCut$LS=="C")
+    }
+    #Liba-16 
+    if (Site=="Eldena_L16" & possYear==2021){
+      autumn=subset(autumn,autumn$LS=="A")
+      DatCut=subset(DatCut,DatCut$LS=="A")
+    }
+    
+    #inverse Baumberge 2 data when needed (LB curtains were inversed)
+    if (Site=="Baumberge2" & possYear>2013 & possYear<2021){
+      autumn$EventC=ifelse(autumn$EventC==1,-1,1)
+      autumn$Event=ifelse(autumn$Event=="ein","aus","ein")
+      DatCut$EventC=ifelse(DatCut$EventC==1,-1,1)
+      DatCut$Event=ifelse(DatCut$Event=="ein","aus","ein")
+    }
+    #################################
+    
+    #add missing dates (when no light barrier pass was registered) in autumn
+    autumn=
+      autumn %>% 
+      mutate(pseudodate=as.Date(pseudodate)) %>% 
+      complete(pseudodate =seq.Date(pseudodate[1],pseudodate[nrow(autumn)], by="day")) 
+    
+    #summary of all light barrier events in autumn
+    sumPdayF_autumn= autumn %>% 
+      group_by(pseudodate) %>% 
+      mutate(total=sum(abs(EventC), na.rm = T),
+             net=sum(EventC, na.rm = T),
+             pos=sum(EventC[EventC==1], na.rm = T),
+             neg=sum(EventC[EventC==-1], na.rm = T)) %>% 
+      distinct(pseudodate, .keep_all = T)
+    autumn_passes=sum(sumPdayF_autumn$total)
+    
+    #set range for plot (here July 1 to July 1)
+    DatCut$pseudodate=as.Date(DatCut$pseudodate)
+    DatCut=subset(DatCut, Pdates>=as.numeric(paste(possYear-1,"0701", sep="")) &
+                    Pdates<=as.numeric(paste(possYear,"0701", sep="")))
+    
+    #add missing dates between July 1 to July 1
+    DatCut=
+      DatCut %>% 
+      mutate(pseudodate=as.Date(pseudodate)) %>% 
+      complete(pseudodate =seq.Date(pseudodate[1],as.Date(paste0(possYear,"-06-30")), by="day")) 
+    
+    # estimate passes and net for if an outlier night was detected
+    if (Site==outlier_site & possYear==outlier_year){
+    
+    #summary of all light barrier events between July 1 to July 1
+    sumPdayF= DatCut %>% 
+      group_by(pseudodate) %>% 
+      mutate(total=sum(abs(EventC), na.rm = T),
+            net=sum(EventC, na.rm = T),
+             pos=sum(EventC[EventC==1], na.rm = T),
+             neg=sum(EventC[EventC==-1], na.rm = T)) %>% 
+      distinct(pseudodate, .keep_all = T)
+    
+    df=sumPdayF %>% 
+        dplyr::select(pseudodate,total,net,pos,neg)
+    
+    #outlier night
+    ind=which(df$pseudodate==as.Date(outlier_night))
+      
+    df$total_est=df$total
+    df$net_est=df$net
+    df$pos_est=df$pos
+    df$neg_est=df$neg
+    
+    #estimate total and net passes on outlier night
+    df$total_est[ind]=round((df$total[ind-1]+ df$total[ind-2]+ df$total[ind-3]+
+                              df$total[ind+1] + df$total[ind+2] +   df$total[ind+3])/6)
+        
+    df$net_est[ind]=round((df$net[ind-1]+ df$net[ind-2]+ df$net[ind-3]+
+                           df$net[ind+1] + df$net[ind+2] +   df$net[ind+3])/6)
+        
+    df$pos_est[ind]=round((df$pos[ind-1]+ df$pos[ind-2]+ df$pos[ind-3]+
+                                 df$pos[ind+1] + df$pos[ind+2] +   df$pos[ind+3])/6)
+        
+    df$neg_est[ind]=round((df$neg[ind-1]+ df$neg[ind-2]+ df$neg[ind-3]+
+                                 df$neg[ind+1] + df$neg[ind+2] +   df$neg[ind+3])/6)
+        
+    sumPdayF=df %>% 
+          dplyr::select(pseudodate, total_est, net_est, neg_est, pos_est) %>% 
+          rename(total=total_est, net=net_est, neg=neg_est, pos=pos_est)
+      
+    
+    }else{
+       
+    #if there was no outlier night detected
+    sumPdayF= DatCut %>% 
+      group_by(pseudodate) %>% 
+      mutate(total=sum(abs(EventC), na.rm = T),
+            net=sum(EventC, na.rm = T),
+             pos=sum(EventC[EventC==1], na.rm = T),
+             neg=sum(EventC[EventC==-1], na.rm = T)) %>% 
+      distinct(pseudodate, .keep_all = T)
+    }
+    
+    
+    #set search window for emergence phase
+    #start is default Jan 1, end is the start of early summer activity swarming (from Python output)
+    may_peak=read.table("./emergence/emergence_split_earlysummer/output/earlysummer_start_days.txt", header=F, sep="\t")
+    colnames(may_peak)=c("Site","year","day")
+    
+    #set start to default Jan 1
+    sumPday=subset(sumPdayF, pseudodate>=as.Date(paste(possYear,"-01-01", sep=""))) 
+    
+    if (Site=="Eldena_L8" | Site=="Eldena_L16" ){
+      day=may_peak$day[may_peak$Site=="Eldena" & may_peak$year==possYear]
+    } else {
+      day=may_peak$day[may_peak$Site==Site & may_peak$year==possYear]
+      
+    }
+    #if no early summer activity, default May 15
+    if(is.na(day)){
+      day=136
+    }
+    #cut at the start of early summer activity 
+    sumPday_may=sumPday[1:day,]
+    
+    #early summer activity data to calculate passes
+    early_summer_data=sumPday[day:nrow(sumPday),]
+    early_summer_data=
+      early_summer_data %>% 
+      filter(pseudodate<as.Date(paste0(possYear,"-07-02")))
+    early_summer_passes=sum(early_summer_data$total)
+    
+    # calculate emergence phase based on max net values (population size estimate)
+    sumPday_may$inv=-sumPday_may$net #method looks for max positive value
+    sumPday_may$inv=ifelse(is.na(sumPday_may$inv),0,sumPday_may$inv)
+    result=maxsub(sumPday_may$inv, inds = T)
+    
+    start=result$inds[1] #index of start date
+    end=result$inds[2] #index of end date
+    netvalue=result$sum #net between start & end date
+    
+    startdate=sumPday_may$pseudodate[start] #start date
+    startdate
+    enddate=sumPday_may$pseudodate[end] #end date
+    enddate
+    netvalue #net between start & end date
+    
+    #subset data for emergence phase
+    Pdates2=split.date(as.character(sumPday$pseudodate), 
+                       format=c("y","m","d"),
+                       sep="-",merge = T)
+    startdateID=split.date(as.character(startdate), 
+                           format=c("y","m","d"),
+                           sep="-",merge = T)
+    enddateID=split.date(as.character(enddate), 
+                         format=c("y","m","d"),
+                         sep="-",merge = T)
+    sumPday2=subset(sumPday, Pdates2>=as.numeric(startdateID) &
+                      Pdates2<=as.numeric(enddateID) )
+    
+    #saved dates and passes in a table
+    row_em=c(Site=Site, year=possYear, start=as.character(startdate), 
+             end=as.character(enddate), estimate=netvalue,
+             total_passes=sum(sumPday2$total),
+             earlysummer_passes=early_summer_passes,
+             autumn_passes=autumn_passes)
+    
+    emergence_dates=rbind(emergence_dates,row_em)
+    
+    ###### EMERGENCE PLOT
+    sumPday$type=sumPday$net>0
+    may_start_date=sumPday$pseudodate[day]
+    
+    emergence_df=
+      sumPday %>%
+      dplyr::select(pseudodate,pos,neg) %>%
+      filter(pseudodate>as.Date("2021-01-11") & pseudodate<as.Date("2021-06-15")) %>% 
+      gather("direction","passes",-pseudodate)
+    minact=min(emergence_df$passes,na.rm = T)
+    
+    #example emergence plot for Eldena
+    if(Site=="Eldena" & possYear==2021){
+      
+    sumPdayF= DatCut %>% 
+        filter(pseudodate>as.Date("2021-01-11") & pseudodate<as.Date("2021-06-15")) %>% 
+        group_by(pseudodate) %>% 
+        mutate(total=sum(abs(EventC), na.rm = T),
+               net=sum(EventC, na.rm = T),
+               pos=sum(EventC[EventC==1], na.rm = T),
+               neg=sum(EventC[EventC==-1], na.rm = T)) %>% 
+        distinct(pseudodate, .keep_all = T)
+    sumPdayF$type=sumPdayF$net>0
+    
+      #emergence plot 
+      emergence=emergence_df %>%
+         ggplot(aes(pseudodate,passes))+
+      #start-end of emergence phase
+      annotate("rect",xmin=startdate, xmax=enddate,
+               ymin=minact*1.20,ymax=minact*1.05,alpha=0.7,fill="#D1E5F0")+
+      #start of early summer
+      geom_vline(xintercept = may_start_date,col="grey50",size=0.5, linetype="dashed")+
+      geom_vline(xintercept = as.Date(paste0(possYear,"-01-01")),col="grey50",size=0.5, linetype="dashed")+
+      geom_col(fill="grey70",col="grey40",size=0.2)+
+      scale_fill_manual(values=c("#994ba9","#b77ac4"))+
+      geom_col(data=sumPdayF,aes(pseudodate,net,fill=type))+
+      scale_x_date(date_labels = "%d %b",
+                   breaks="3 weeks")+
+      labs(x="",y="number of passes",title=paste(Site,possYear))+
+      theme_bw()+
+      theme(panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"))+
+      theme(legend.position = "none")+
+      scale_y_continuous(breaks=pretty_breaks(n=6))
+      
+    emergence
+    ggsave(paste0("./emergence/",Site,"_",possYear,".png"),
+           width = 18, height = 10, dpi = 800, units = "cm", device='png')
+    
+    }
+  } #end of loop per year
+  
+}
+
+write.csv(emergence_dates[-1,], 
+          paste0("./emergence/LB_estimates_dates.csv"),
+          row.names = F)
+
+```

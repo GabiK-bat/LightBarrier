@@ -1,0 +1,409 @@
+---
+title: "autumn_spring_accuracy"
+author: "GabiK"
+date: '2022-03-30'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("./TimeFrame5.R")
+library(tidyverse)
+library(viridis)
+library(epiR)
+library(dplyr)
+library(ggpubr)
+library(stringr)
+```
+
+# AUTUMN CONCORDANCE 
+```{r autumn_data}
+# AUTUMN light barrier and video scoring data
+A1=read.csv("./data/accuracy_data/Anklam_autumn_pseudo.csv", header=TRUE)
+A2=read.csv("./data/accuracy_data/Demmin_autumn_pseudo.csv", header=TRUE)
+A3=read.csv("./data/accuracy_data/Friedland_autumn_pseudo.csv", header=TRUE)
+A4=read.csv("./data/accuracy_data/Peenemuende_autumn_pseudo.csv", header=TRUE)
+A5=read.csv("./data/accuracy_data/Eldena_L16_autumn_pseudo.csv", header=TRUE)
+A6=read.csv("./data/accuracy_data/Eldena_L8_autumn_pseudo.csv", header=TRUE)
+
+#merge files from all sites
+merged_autumn=rbind(A1,A2,A3,A4, A5,A6)
+merged_autumn=
+  merged_autumn %>% 
+  select(EventC,VideoC, Innerloop, Accuracy, Week, Site, pseudoday, pseudodate)
+head(merged_autumn)
+```
+
+```{r autumn_net_data}
+# NET light barrier and video passes per night
+net_sum2=merged_autumn %>% 
+  group_by(Site,pseudoday) %>%
+  summarise(LBperday=sum(EventC, na.rm = T),
+            VIDperday=sum(VideoC, na.rm = T))
+
+#Lin’s concordance correlation coefficients (CCC with CI)
+#Anklam 
+ank3=net_sum2 %>% 
+  filter(Site=="Anklam") 
+ank3_conc=round(epi.ccc(ank3$LBperday,ank3$VIDperday)$rho.c[1],2)
+ank3_lcl=round(epi.ccc(ank3$LBperday,ank3$VIDperday)$rho.c[2],2)
+ank3_ucl=round(epi.ccc(ank3$LBperday,ank3$VIDperday)$rho.c[3],2)
+
+#Peenemuende 
+pen3=net_sum2 %>% 
+  filter(Site=="Peenemuende") 
+pen3_conc=round(epi.ccc(pen3$LBperday,pen3$VIDperday)$rho.c[1],2)
+pen3_lcl=round(epi.ccc(pen3$LBperday,pen3$VIDperday)$rho.c[2],2)
+pen3_ucl=round(epi.ccc(pen3$LBperday,pen3$VIDperday)$rho.c[3],2)
+
+#Demmin
+dem3=net_sum2 %>% 
+  filter(Site=="Demmin") 
+dem3_conc=round(epi.ccc(dem3$LBperday,dem3$VIDperday)$rho.c[1],2)
+dem3_lcl=round(epi.ccc(dem3$LBperday,dem3$VIDperday)$rho.c[2],2)
+dem3_ucl=round(epi.ccc(dem3$LBperday,dem3$VIDperday)$rho.c[3],2)
+
+#Friedland
+frd3=net_sum2 %>% 
+  filter(Site=="Friedland") 
+frd3_conc=round(epi.ccc(frd3$LBperday,frd3$VIDperday)$rho.c[1],digits=2)
+frd3_conc=format(round(frd3_conc, 2), nsmall = 2)
+frd3_lcl=round(epi.ccc(frd3$LBperday,frd3$VIDperday)$rho.c[2],2)
+frd3_ucl=round(epi.ccc(frd3$LBperday,frd3$VIDperday)$rho.c[3],2)
+
+#Eldena Liba-16
+eld_l16_3=net_sum2 %>% 
+  filter(Site=="Eldena_L16") 
+eld_l16_3_conc=round(epi.ccc(eld_l16_3$LBperday,eld_l16_3$VIDperday)$rho.c[1],2) 
+eld_l16_3_lcl=round(epi.ccc(eld_l16_3$LBperday,eld_l16_3$VIDperday)$rho.c[2],2)
+eld_l16_3_ucl=round(epi.ccc(eld_l16_3$LBperday,eld_l16_3$VIDperday)$rho.c[3],2)
+
+#Eldena Liba-16k
+eld_l8_3=net_sum2 %>% 
+  filter(Site=="Eldena_L8") 
+eld_l8_3_conc=round(epi.ccc(eld_l8_3$LBperday,eld_l8_3$VIDperday)$rho.c[1],2)
+eld_l8_3_lcl=round(epi.ccc(eld_l8_3$LBperday,eld_l8_3$VIDperday)$rho.c[2],2)
+eld_l8_3_ucl=round(epi.ccc(eld_l8_3$LBperday,eld_l8_3$VIDperday)$rho.c[3],2)
+
+conc_autumn_net =
+  data.frame(Site = c('Anklam','Demmin','Friedland', 
+                      'Peenemuende', 'Eldena_L16', 'Eldena_L8'), 
+            lbl = c(paste0("CCC=", ank3_conc,'\n (',ank3_lcl,'-',ank3_ucl,')'), 
+                    paste0("CCC=",dem3_conc,'\n (',dem3_lcl,'-',dem3_ucl,')'),
+                    paste0("CCC=",frd3_conc,'\n (',frd3_lcl,'-',frd3_ucl,')'),
+                    paste0("CCC=",pen3_conc,'\n (',pen3_lcl,'-',pen3_ucl,')'),
+                    paste0("CCC=",eld_l16_3_conc,'\n (',eld_l16_3_lcl,'-',eld_l16_3_ucl,')'),
+                    paste0("CCC=",eld_l8_3_conc,'\n (',eld_l8_3_lcl,'-',eld_l8_3_ucl,')')))
+
+sites=c(`Anklam`="Anklam (L4)",
+        `Demmin`="Demmin (L16k)", 
+        `Friedland`="Friedland (L16)",
+        `Peenemuende`="Peenemünde (L4)",
+        `Eldena_L8`="Eldena (L16k)",
+        `Eldena_L16`="Eldena (L16)")
+
+net_sum2$Site = 
+  factor(net_sum2$Site,
+                       levels=c("Friedland","Anklam","Demmin",
+                                "Eldena_L16","Peenemuende", "Eldena_L8"))
+conc_autumn_net$Site=
+  factor(conc_autumn_net$Site,
+          levels=c("Friedland","Anklam","Demmin",
+                    "Eldena_L16","Peenemuende", "Eldena_L8"))
+```
+
+```{r autumn_net_plot}
+net_autumn_plot=
+  net_sum2 %>% 
+  ggplot(aes(x=VIDperday, y=LBperday)) + 
+  stat_smooth(method="lm", fullrange=TRUE,col='gray')+
+  geom_point(size=1)+
+  labs(y="Light barrier net / night", 
+       x = "Infrared video net / night")+
+  theme(axis.text.x=element_text(size=7))+
+  facet_wrap(~Site, labeller=as_labeller(sites))+
+  theme_bw()+
+  geom_abline(slope=1, intercept = 0)+
+  coord_fixed(ratio = 1)+
+  xlim(-100,100)+
+  ylim(-100,100)+
+  geom_text(data = conc_autumn_net, 
+            aes(x = -100, y =70, label = lbl), hjust = 0,
+            size=3.5)+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  theme(panel.spacing = unit(1, "lines"))
+net_autumn_plot
+
+ggsave("./accuracy/output/autumn_net_CCC.png",
+           width = 14, height = 10, dpi = 800, units = "cm", device='png' )
+```
+
+# SPRING CONCORDANCE 
+```{r spring_data}
+# SPRING light barrier and video scoring data
+S1=read.csv("./data/accuracy_data/Anklam_spring_pseudo.csv", header=TRUE)
+S2=read.csv("./data/accuracy_data/Demmin_spring_pseudo.csv", header=TRUE)
+S3=read.csv("./data/accuracy_data/Friedland_spring_pseudo.csv", header=TRUE)
+S4=read.csv("./data/accuracy_data/Peenemuende_spring_pseudo.csv", header=TRUE)
+S5=read.csv("./data/accuracy_data/Eldena_L8_spring_pseudo.csv", header=TRUE)
+S6=read.csv("./data/accuracy_data/Eldena_L16_spring_pseudo.csv", header=TRUE)
+
+#exclude outlier night in Friedland (28 March 2021)
+S3=S3 %>% 
+  filter(pseudodate!="28/03/2021")
+
+#merge files from all sites
+merged_spring=rbind(S1,S2,S3,S4,S5,S6)
+merged_spring=
+ merged_spring %>% 
+ select(EventC,VideoC, Innerloop, Accuracy, Week, Site, pseudoday, pseudodate)
+head(merged_spring)
+```
+
+```{r spring_net_data}
+# NET light barrier and video passes per night
+net_sum=merged_spring %>% 
+  group_by(Site,pseudoday) %>%
+  summarise(LBperday=sum(EventC, na.rm = T),
+            VIDperday=sum(VideoC, na.rm = T))
+
+#Lin’s concordance correlation coefficients (CCC with CI)
+#Anklam 
+ank4=net_sum %>% 
+  filter(Site=="Anklam") 
+ank4_conc=round(epi.ccc(ank4$LBperday,ank4$VIDperday)$rho.c[1],2)
+ank4_lcl=round(epi.ccc(ank4$LBperday,ank4$VIDperday)$rho.c[2],2)
+ank4_ucl=round(epi.ccc(ank4$LBperday,ank4$VIDperday)$rho.c[3],2)
+
+#Peenemuende 
+pen4=net_sum %>% 
+  filter(Site=="Peenemuende") 
+pen4_conc=round(epi.ccc(pen4$LBperday,pen4$VIDperday)$rho.c[1],2)
+pen4_lcl=round(epi.ccc(pen4$LBperday,pen4$VIDperday)$rho.c[2],2)
+pen4_lcl=format(round(pen4_lcl, 2), nsmall = 2)
+pen4_ucl=round(epi.ccc(pen4$LBperday,pen4$VIDperday)$rho.c[3],2)
+
+#Demmin
+dem4=net_sum %>% 
+  filter(Site=="Demmin") 
+dem4_conc=round(epi.ccc(dem4$LBperday,dem4$VIDperday)$rho.c[1],2)
+dem4_conc=format(round(dem4_conc, 2), nsmall = 2)
+dem4_lcl=round(epi.ccc(dem4$LBperday,dem4$VIDperday)$rho.c[2],2)
+dem4_lcl=format(round(dem4_lcl, 2), nsmall = 2)
+dem4_ucl=round(epi.ccc(dem4$LBperday,dem4$VIDperday)$rho.c[3],2)
+dem4_ucl=format(round(dem4_ucl, 2), nsmall = 2)
+
+#Friedland
+frd4=net_sum %>% 
+  filter(Site=="Friedland") 
+frd4_conc=round(epi.ccc(frd4$LBperday,frd4$VIDperday)$rho.c[1],2)
+frd4_lcl=round(epi.ccc(frd4$LBperday,frd4$VIDperday)$rho.c[2],2)
+frd4_lcl=format(round(frd4_lcl, 2), nsmall = 2)
+frd4_ucl=round(epi.ccc(frd4$LBperday,frd4$VIDperday)$rho.c[3],2)
+
+#Eldena Liba-16
+eld_L16_4=net_sum %>% 
+  filter(Site=="Eldena_L16") 
+eld_L16_4_conc=round(epi.ccc(eld_L16_4$LBperday,eld_L16_4$VIDperday)$rho.c[1],2)
+eld_L16_4_lcl=round(epi.ccc(eld_L16_4$LBperday,eld_L16_4$VIDperday)$rho.c[2],2)
+eld_L16_4_ucl=round(epi.ccc(eld_L16_4$LBperday,eld_L16_4$VIDperday)$rho.c[3],2)
+
+#Eldena Liba-16k
+eld_L8_4=net_sum %>% 
+  filter(Site=="Eldena_L8") 
+eld_L8_4_conc=round(epi.ccc(eld_L8_4$LBperday,eld_L8_4$VIDperday)$rho.c[1],2) 
+eld_L8_4_conc=format(round(eld_L8_4_conc, 2), nsmall = 2)
+eld_L8_4_lcl=round(epi.ccc(eld_L8_4$LBperday,eld_L8_4$VIDperday)$rho.c[2],2)
+eld_L8_4_lcl=format(round(eld_L8_4_lcl, 2), nsmall = 2)
+eld_L8_4_ucl=round(epi.ccc(eld_L8_4$LBperday,eld_L8_4$VIDperday)$rho.c[3],2)
+eld_L8_4_ucl=format(round(eld_L8_4_ucl, 2), nsmall = 2)
+
+conc_spring_net=
+  data.frame(Site=c('Anklam','Demmin','Friedland', 
+                      'Peenemuende', 'Eldena_L16','Eldena_L8'), 
+            lbl=c(paste0('CCC=',ank4_conc,'\n (',ank4_lcl,'-',ank4_ucl,')'), 
+                    paste0('CCC=',dem4_conc,'\n (',dem4_lcl,'-',dem4_ucl,')'),
+                    paste0('CCC=',frd4_conc,'\n (',frd4_lcl,'-',frd4_ucl,')'),
+                    paste0('CCC=',pen4_conc,'\n (',pen4_lcl,'-',pen4_ucl,')'),
+                    paste0('CCC=',eld_L16_4_conc,'\n (',eld_L16_4_lcl,'-',eld_L16_4_ucl,')'),
+                    paste0('CCC=',eld_L8_4_conc,'\n (',eld_L8_4_lcl,'-',eld_L8_4_ucl,')')))
+net_sum$Site= 
+  factor(net_sum$Site,
+         levels=c("Friedland","Anklam","Demmin",
+                  "Eldena_L16","Peenemuende", "Eldena_L8"))
+
+conc_spring_net$Site=
+  factor(conc_spring_net$Site,
+         levels=c("Friedland","Anklam","Demmin",
+                  "Eldena_L16","Peenemuende", "Eldena_L8"))
+```
+
+```{r spring_net_plot}
+net_spring_plot=
+  net_sum %>% 
+  ggplot(aes(x=VIDperday, y=LBperday)) + 
+  stat_smooth(method="lm", fullrange=TRUE,col='gray')+
+  geom_point(size=1)+
+  theme(panel.grid.minor = element_blank())+
+  labs(y="Light barrier net / night", 
+       x = "Infrared video net / night")+
+  theme(axis.text.x=element_text(size=7))+
+  facet_wrap(~Site, labeller = as_labeller(sites))+
+  theme_bw( )+
+  geom_abline(slope=1, intercept = 0)+
+  coord_fixed(ratio = 1)+
+  xlim(-100,100)+
+  ylim(-100,100)+
+  geom_text(data = conc_spring_net, 
+            aes(x = -100, y = 70, label = lbl), hjust = 0)+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  theme(panel.spacing = unit(1, "lines"))
+net_spring_plot
+
+ggsave("./accuracy/output/spring_net_CCC.png",
+           width = 14, height = 10, dpi = 800, units = "cm", device='png' )
+```
+
+```{r}
+ggarrange(net_autumn_plot,net_spring_plot,nrow=1)
+ggsave("./accuracy/output/autumn_spring_net_CCC.png",
+           width = 28, height = 12, dpi = 800, units = "cm", device='png' )
+```
+
+```{r innerloop_error_table}
+#proportion of errors due to innerloops
+innerloop_errors_spring= 
+  merged_spring %>% 
+  filter(Accuracy==0) %>% 
+  group_by(Site,Innerloop) %>% 
+  count() %>%
+  ungroup() %>% 
+  group_by(Site) %>% 
+  mutate(total=sum(n),
+         pct=round((n*100/total),2))
+innerloop_errors_spring
+
+#save as table
+write.csv(innerloop_errors_spring, "./accuracy/output/innerloop_errors_spring.csv",row.names = F)
+```
+
+```{r spring_error_summary}
+# errors quantified based on the video data
+set.seed(222)
+year=2021
+Sites=c("Demmin","Peenemuende","Anklam","Friedland",
+        "Eldena_L16","Eldena_L8")
+mean_errors=data.frame(Site=0,mean_error=0, sd_error=0, 
+                       chunk=0,se_error=0)
+
+#loop through all sites
+for (Site in Sites){
+  #emergence dates and max estimates
+  emdat=read.csv(paste0("./emergence/LB_estimates_dates.csv"))
+  emergence_start=emdat$start[emdat$Site==Site & emdat$year==year]
+  emergence_start
+  emergence_end=emdat$end[emdat$Site==Site & emdat$year==year]
+  emergence_end
+ 
+  merged_spring2=subset(merged_spring[merged_spring$Site==Site,])
+  merged_spring2$pseudodate=as.Date(merged_spring2$pseudodate, 
+                                    tryFormats = c("%d/%m/%Y")) 
+  my_data_frame=
+   merged_spring2 %>% 
+   filter(as.Date(merged_spring2$pseudodate)>as.Date(emergence_start) & 
+          as.Date(merged_spring2$pseudodate)<as.Date(emergence_end)) %>% 
+   filter(!is.na(VideoC)) %>% 
+   mutate(Net_error=EventC-VideoC)
+ 
+  round=1
+  all_net_errors=vector("list", 1000)
+
+  repeat {
+    all_indices=1:length(my_data_frame$Net_error)
+    sampled_indices=vector("list", floor(length(my_data_frame$Net_error)/100))
+    net_errors=vector("list", floor(length(my_data_frame$Net_error)/100))
+   
+     for (i in 1:floor(length(my_data_frame$Net_error)/100)){
+       #take 100 random samples
+       sampled_indices[[i]]=sample(x = all_indices,size = 100,replace = FALSE)
+       #calculate net error/100 pass
+       net_errors[[i]]=sum(my_data_frame$Net_error[sampled_indices[[i]]])
+       #exclude sampled indices
+       all_indices=all_indices[!(all_indices %in% sampled_indices[[i]])]
+       
+     }
+    net_errors=rep(unlist(net_errors))
+    net_errors
+    all_net_errors[[round]]=net_errors
+    round=round+1
+    
+    if(round==1001){
+      break
+    }
+}
+
+  all_net_errors= rep(unlist(all_net_errors))
+  length(all_net_errors)
+  #hist(all_net_errors)
+  mean(all_net_errors)
+  sd(all_net_errors)
+
+  sd_net_error=round(sd(all_net_errors),2)
+  print(paste0(Site," SD=",sd_net_error))
+ 
+  n_chunk=length(all_net_errors)
+  se_net_error=sd_net_error / sqrt(n_chunk)
+  lcl_net_error = mean(all_net_errors) - qt(1 - (0.05 / 2), n_chunk - 1) * se_net_error
+  ucl_net_error = mean(all_net_errors) + qt(1 - (0.05 / 2), n_chunk - 1) * se_net_error
+  row=c(Site,round(mean(all_net_errors),2),round(sd_net_error,2),n_chunk,round(se_net_error,2))
+  mean_errors=rbind(mean_errors,row)
+}
+
+#save as table
+write.csv(mean_errors[-1,],"./accuracy/output/spring_error_summary.csv",row.names = F)
+```
+
+```{r spring_doubleLB_error}
+#errors quantified based on consecutive light barriers in Eldena (Liba-16 and 16k)
+S1=read.csv("./data/accuracy_data/Eldena_L8_spring_missed_passes.csv", header=TRUE)
+S2=read.csv("./data/accuracy_data/Eldena_L16_spring_missed_passes.csv", header=TRUE)
+
+merged_spring=
+  rbind(S1,S2) %>% 
+  dplyr::select(EventC,VideoC, Innerloop, Accuracy, Week, Site, pseudoday, pseudodate, flutter.error, event.missed)
+head(merged_spring)
+
+Sites=c("Eldena_L8","Eldena_L16")
+
+for (site in Sites){
+  my_data_frame= merged_spring %>% 
+    filter(Site==site) %>% 
+    filter(!is.na(VideoC)) 
+  
+  chunk <-100 #after how many rows (passes) should we split the data
+  n <- nrow(my_data_frame)
+  r  <- rep(1:ceiling(n/chunk),each=chunk)[1:n]
+  d <- split(my_data_frame,r)
+  
+  avg <- vector("list", length(d))
+  for (i in seq_along(d)){
+    avg[[i]] <- sum(d[[i]]$event.missed[d[[i]]$flutter.error==1]) #filter for missed registrations
+    #calculate the net error caused by these missed registrations
+  }
+  chunk_net_errors= rep(unlist(avg))[-length(avg)]
+  mean_net_error=mean(chunk_net_errors)
+  print(paste(site,"mean net error =",round(mean_net_error,1)))
+  
+  sd_net_error=sd(chunk_net_errors)
+  print(paste(site,"SD =",round(sd_net_error,1)))
+  
+  n_chunk=length(d)-1
+  se_net_error=sd_net_error / sqrt(n_chunk)
+}
+```
+
+
