@@ -4,6 +4,7 @@
 Data and R scripts used in the following publication:
 
 G. Krivek, E. P. N. Mahecha, F. Meier, G. Kerth, J. van Schaik (2023) Counting in the dark: estimating population size and trends of bat assemblages at hibernacula using infrared light barriers, *Animal Conservation*.
+https://doi.org/10.1111/acv.12856
 
 Corresponding author: Gabriella Krivek, krivek.g@gmail.com
 
